@@ -465,15 +465,26 @@ async function fetchWithProxyFallback(targetUrl, signal) {
     return new Promise((resolve, reject) => {
         let completed = 0;
         let errors = [];
+        let isResolved = false;
         
         fetchPromises.forEach((promise, idx) => {
-            promise.then(resolve).catch(err => {
-                errors.push(`${proxiedUrls[idx].name}: ${err.message}`);
-                completed++;
-                if (completed === fetchPromises.length) {
-                    reject(new Error('All parallel proxies failed: ' + errors.join(' | ')));
+            promise.then(
+                (content) => {
+                    if (!isResolved) {
+                        isResolved = true;
+                        resolve(content);
+                    }
+                },
+                (err) => {
+                    if (isResolved) return; // すでに解決済みなら以後の失敗は無視
+                    
+                    errors.push(`${proxiedUrls[idx].name}: ${err.message}`);
+                    completed++;
+                    if (completed === fetchPromises.length) {
+                        reject(new Error('All parallel proxies failed: ' + errors.join(' | ')));
+                    }
                 }
-            });
+            );
         });
     });
 }
