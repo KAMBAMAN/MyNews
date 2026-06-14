@@ -49,7 +49,7 @@ const DEFAULT_CATEGORIES = [
                 id: 'oricon',
                 name: 'オリコンニュース (特撮)',
                 type: 'scraping',
-                url: 'https://www.oricon.co.jp/genre/tokusatsu/',
+                url: 'https://www.oricon.co.jp/genre/tokusatsu',
                 accentClass: 'oricon'
             },
             {
@@ -63,7 +63,7 @@ const DEFAULT_CATEGORIES = [
                 id: 'kamenrider',
                 name: '仮面ライダー公式サイト',
                 type: 'scraping',
-                url: 'https://www.kamen-rider-official.com/news/',
+                url: 'https://www.kamen-rider-official.com/news',
                 accentClass: 'kamenrider'
             },
             {
@@ -99,6 +99,18 @@ let categories = JSON.parse(localStorage.getItem('gnh_categories')) || DEFAULT_C
                 }
                 if (src.id === 'dengeki' && src.url.includes('/archive/')) {
                     src.url = 'https://dengekionline.com/';
+                    updated = true;
+                }
+            });
+        }
+        if (cat.id === 'tokusatsu') {
+            cat.sources.forEach(src => {
+                if (src.id === 'oricon' && src.url.endsWith('/')) {
+                    src.url = 'https://www.oricon.co.jp/genre/tokusatsu';
+                    updated = true;
+                }
+                if (src.id === 'kamenrider' && src.url.endsWith('/')) {
+                    src.url = 'https://www.kamen-rider-official.com/news';
                     updated = true;
                 }
             });
@@ -360,6 +372,11 @@ async function fetchWithProxyFallback(targetUrl, signal) {
             parse: async (res) => await res.text()
         },
         {
+            // cors.lol (新しく追加、制限が緩い)
+            url: `https://cors.lol/?url=${encodeURIComponent(targetUrl)}`,
+            parse: async (res) => await res.text()
+        },
+        {
             // yacdn.org (ボットフィルターに強く、非常に安定)
             url: `https://yacdn.org/proxy/${targetUrl}`,
             parse: async (res) => await res.text()
@@ -390,13 +407,13 @@ async function fetchWithProxyFallback(targetUrl, signal) {
         try {
             console.log(`Trying proxy: ${proxy.url}`);
             
-            // 4秒で接続を切るためのAbortController
+            // 6秒で接続を切るためのAbortController
             const timerController = new AbortController();
             timeoutId = setTimeout(() => {
                 timerController.abort();
-            }, 4000);
+            }, 6000);
 
-            // ユーザー中止シグナルと4秒タイムアウト用シグナルを結合
+            // ユーザー中止シグナルと6秒タイムアウト用シグナルを結合
             const combinedSignal = signal 
                 ? anySignal([signal, timerController.signal]) 
                 : timerController.signal;
@@ -419,8 +436,8 @@ async function fetchWithProxyFallback(targetUrl, signal) {
                 if (signal && signal.aborted) {
                     throw err; // ユーザー自身によるキャンセルならここで終了
                 }
-                console.warn(`Proxy timeout (4000ms): ${proxy.url}`);
-                lastError = new Error(`Proxy timeout (4000ms)`);
+                console.warn(`Proxy timeout (6000ms): ${proxy.url}`);
+                lastError = new Error(`Proxy timeout (6000ms)`);
                 continue; // タイムアウトの場合は次のプロキシへ切り替え
             }
             
