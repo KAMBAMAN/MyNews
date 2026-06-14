@@ -478,8 +478,8 @@ function parseScraping(doc, src) {
         
         doc.querySelectorAll('a').forEach(a => {
             const href = a.getAttribute('href');
-            if (href && (href.includes('/article/') || href.includes('/category/')) && !href.startsWith('http') && href.match(/\d+$/)) {
-                const fullUrl = `https://www.famitsu.com${href}`;
+            if (href && href.includes('/article/') && href.match(/\d+$/)) {
+                const fullUrl = href.startsWith('http') ? href : `https://www.famitsu.com${href}`;
                 if (seenUrls.has(fullUrl)) return;
                 seenUrls.add(fullUrl);
 
