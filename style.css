@@ -1031,13 +1031,17 @@ body {
 /* Source Filter Chips Styles */
 .source-filter-container {
     display: flex;
-    gap: 0.5rem;
+    gap: 2px;
     overflow-x: auto;
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none;  /* IE and Edge */
-    padding: 0.25rem 0 0.5rem;
+    padding: 2px;
     margin-bottom: 1.5rem;
-    width: 100%;
+    width: max-content;
+    max-width: 100%;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .source-filter-container::-webkit-scrollbar {
@@ -1045,15 +1049,13 @@ body {
 }
 
 .filter-chip {
-    background-color: var(--card-bg-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--card-border);
+    background: transparent;
+    border: none;
     color: var(--text-secondary);
-    padding: 0.4rem 1.1rem;
-    font-size: 0.82rem;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
     font-weight: 600;
-    border-radius: 20px;
+    border-radius: 6px;
     cursor: pointer;
     white-space: nowrap;
     transition: var(--transition-smooth);
@@ -1061,15 +1063,12 @@ body {
 
 .filter-chip:hover {
     color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .filter-chip.active {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
-    border-color: rgba(99, 102, 241, 0.4);
-    color: #818cf8;
-    box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 
