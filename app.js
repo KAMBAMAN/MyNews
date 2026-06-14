@@ -1,12 +1,3 @@
-// Helper to generate Dengeki Online archive URL dynamically (e.g. https://dengekionline.com/archive/2026/06)
-// This monthly archive page is lightweight and much less likely to trigger CORS proxy timeouts or Cloudflare block compared to Dengeki's heavy homepage.
-function getDengekiUrl() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    return `https://dengekionline.com/archive/${year}/${month}`;
-}
-
 // Default initial categories mapping to the five game sources
 const DEFAULT_CATEGORIES = [
     {
@@ -38,14 +29,14 @@ const DEFAULT_CATEGORIES = [
                 id: 'famitsu',
                 name: 'ファミ通.com',
                 type: 'scraping',
-                url: 'https://www.famitsu.com/category/new-article/',
+                url: 'https://www.famitsu.com/news/',
                 accentClass: 'famitsu'
             },
             {
                 id: 'dengeki',
                 name: '電撃オンライン',
                 type: 'scraping',
-                url: getDengekiUrl(),
+                url: 'https://dengekionline.com/',
                 accentClass: 'dengeki'
             }
         ]
@@ -54,6 +45,29 @@ const DEFAULT_CATEGORIES = [
 
 // App State
 let categories = JSON.parse(localStorage.getItem('gnh_categories')) || DEFAULT_CATEGORIES;
+
+// Storage Migration: Update old static URLs if they exist in localStorage from previous versions
+(function migrateStorage() {
+    let updated = false;
+    categories.forEach(cat => {
+        if (cat.id === 'game') {
+            cat.sources.forEach(src => {
+                if (src.id === 'famitsu' && src.url.includes('/category/new-article/')) {
+                    src.url = 'https://www.famitsu.com/news/';
+                    updated = true;
+                }
+                if (src.id === 'dengeki' && src.url.includes('/archive/')) {
+                    src.url = 'https://dengekionline.com/';
+                    updated = true;
+                }
+            });
+        }
+    });
+    if (updated) {
+        localStorage.setItem('gnh_categories', JSON.stringify(categories));
+    }
+})();
+
 let activeCategoryId = localStorage.getItem('gnh_active_category_id') || 'game';
 let globalArticles = []; // Merged and deduplicated articles
 let loadingStates = {};  // Source ID -> 'idle' | 'loading' | 'done' | 'error'
@@ -513,33 +527,48 @@ function parseScraping(doc, src) {
         });
     } 
     else if (src.id === 'dengeki') {
-        const cards = doc.querySelectorAll('a[class*="ArticleCard_card"]');
+        const seenUrls = new Set();
         
-        cards.forEach(card => {
-            const href = card.getAttribute('href');
-            if (!href) return;
-            const fullUrl = href.startsWith('http') ? href : `https://dengekionline.com${href}`;
+        doc.querySelectorAll('a').forEach(a => {
+            const href = a.getAttribute('href');
+            if (href && href.includes('/articles/')) {
+                const fullUrl = href.startsWith('http') ? href : `https://dengekionline.com${href}`;
+                if (seenUrls.has(fullUrl)) return;
+                seenUrls.add(fullUrl);
 
-            const titleEl = card.querySelector('p[class*="title"], p[class*="Title"]');
-            const timeEl = card.querySelector('time');
-            const descEl = card.querySelector('p[class*="description"], p[class*="Description"]');
-
-            if (titleEl) {
-                const title = titleEl.textContent.trim();
-                const description = descEl ? descEl.textContent.trim() : title;
+                let title = '';
+                const titleEl = a.querySelector('p[class*="title"], p[class*="Title"], h2, h3, p');
+                if (titleEl) {
+                    title = titleEl.textContent.trim();
+                } else {
+                    title = a.textContent.trim();
+                }
                 
+                title = title.replace(/\s+/g, ' ').trim();
+                if (title.length < 10) return;
+
                 let pubDate = now;
+                const timeEl = a.querySelector('time') || a.parentElement?.querySelector('time');
                 if (timeEl) {
                     const timeText = timeEl.textContent.trim();
                     pubDate = new Date(timeText);
                     if (isNaN(pubDate.getTime())) {
                         pubDate = parseRelativeTime(timeText);
                     }
+                } else {
+                    const text = a.parentElement?.textContent || '';
+                    const match = text.match(/(\d+)\s*(時間前|分前|日前)/);
+                    if (match) {
+                        pubDate = parseRelativeTime(match[0]);
+                    }
                 }
 
                 if ((now - pubDate) > limitMs) {
                     return;
                 }
+
+                const descEl = a.querySelector('p[class*="description"], p[class*="Description"]');
+                const description = descEl ? descEl.textContent.trim() : title;
 
                 articles.push({
                     title,
