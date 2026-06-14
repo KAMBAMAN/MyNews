@@ -73,6 +73,7 @@ let globalArticles = []; // Merged and deduplicated articles
 let loadingStates = {};  // Source ID -> 'idle' | 'loading' | 'done' | 'error'
 let filterHours = 8;     // Default timeframe: 8 hours (requested)
 let activeTab = 'all';   // 'all' | 'favorites'
+let activeSourceFilter = 'all'; // Default source filter (requested)
 let favorites = JSON.parse(localStorage.getItem('gnh_favorites') || '[]');
 let currentAbortController = null; // To cancel active parallel requests on category/timeframe switch
 
@@ -88,8 +89,9 @@ const favCountSpan = document.getElementById('favCount');
 const tabAll = document.getElementById('tabAll');
 const tabFavorites = document.getElementById('tabFavorites');
 
-// New DOM Elements for Categories and Modal
+// New DOM Elements for Categories, Modal, and Filters
 const categoryTabs = document.getElementById('categoryTabs');
+const sourceFilterContainer = document.getElementById('sourceFilterContainer');
 const manageBtn = document.getElementById('manageBtn');
 const manageModal = document.getElementById('manageModal');
 const closeModalBtn = document.getElementById('closeModalBtn');
@@ -192,6 +194,44 @@ function getActiveSources() {
     return activeCat ? activeCat.sources : [];
 }
 
+// Render Media Filter Chips dynamically based on current category sources
+function renderSourceFilters() {
+    sourceFilterContainer.innerHTML = '';
+    
+    const activeSources = getActiveSources();
+    if (activeSources.length <= 1) {
+        sourceFilterContainer.style.display = 'none';
+        return;
+    }
+    sourceFilterContainer.style.display = 'flex';
+
+    // 「すべて」のチップス
+    const allChip = document.createElement('button');
+    allChip.className = `filter-chip ${activeSourceFilter === 'all' ? 'active' : ''}`;
+    allChip.textContent = 'すべて';
+    allChip.addEventListener('click', () => {
+        activeSourceFilter = 'all';
+        document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+        allChip.classList.add('active');
+        renderArticles();
+    });
+    sourceFilterContainer.appendChild(allChip);
+
+    // 各ソースのチップス
+    activeSources.forEach(src => {
+        const chip = document.createElement('button');
+        chip.className = `filter-chip ${activeSourceFilter === src.id ? 'active' : ''}`;
+        chip.textContent = src.name;
+        chip.addEventListener('click', () => {
+            activeSourceFilter = src.id;
+            document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            renderArticles();
+        });
+        sourceFilterContainer.appendChild(chip);
+    });
+}
+
 // Start news fetching process (parallelized)
 function startFetchNews() {
     if (currentAbortController) {
@@ -199,6 +239,10 @@ function startFetchNews() {
     }
     currentAbortController = new AbortController();
     const signal = currentAbortController.signal;
+
+    // カテゴリや期間の切り替え時にフィルターを「すべて」にリセット
+    activeSourceFilter = 'all';
+    renderSourceFilters();
 
     globalArticles = [];
     renderArticles(); // Clear list and show skeleton
@@ -725,6 +769,13 @@ function renderArticles() {
 
     if (activeTab === 'favorites') {
         filtered = getFavoritesAsArticles();
+    }
+
+    // メディア絞り込みフィルターの適用
+    if (activeSourceFilter !== 'all') {
+        filtered = filtered.filter(art => 
+            art.sources.some(s => s.id === activeSourceFilter)
+        );
     }
 
     const query = searchInput.value.trim().toLowerCase();

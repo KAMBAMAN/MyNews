@@ -1028,3 +1028,48 @@ body {
     background: rgba(255, 255, 255, 0.2);
 }
 
+/* Source Filter Chips Styles */
+.source-filter-container {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;  /* IE and Edge */
+    padding: 0.25rem 0 0.5rem;
+    margin-bottom: 1.5rem;
+    width: 100%;
+}
+
+.source-filter-container::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+}
+
+.filter-chip {
+    background-color: var(--card-bg-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--card-border);
+    color: var(--text-secondary);
+    padding: 0.4rem 1.1rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border-radius: 20px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: var(--transition-smooth);
+}
+
+.filter-chip:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.filter-chip.active {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
+    border-color: rgba(99, 102, 241, 0.4);
+    color: #818cf8;
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
+}
+
+
