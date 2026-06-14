@@ -49,7 +49,7 @@ const DEFAULT_CATEGORIES = [
                 id: 'oricon',
                 name: 'オリコンニュース (特撮)',
                 type: 'scraping',
-                url: 'https://www.oricon.co.jp/genre/tokusatsu',
+                url: 'https://www.oricon.co.jp/',
                 accentClass: 'oricon'
             },
             {
@@ -63,7 +63,7 @@ const DEFAULT_CATEGORIES = [
                 id: 'kamenrider',
                 name: '仮面ライダー公式サイト',
                 type: 'scraping',
-                url: 'https://www.kamen-rider-official.com/news',
+                url: 'https://www.kamen-rider-official.com/',
                 accentClass: 'kamenrider'
             },
             {
@@ -105,12 +105,12 @@ let categories = JSON.parse(localStorage.getItem('gnh_categories')) || DEFAULT_C
         }
         if (cat.id === 'tokusatsu') {
             cat.sources.forEach(src => {
-                if (src.id === 'oricon' && src.url.endsWith('/')) {
-                    src.url = 'https://www.oricon.co.jp/genre/tokusatsu';
+                if (src.id === 'oricon' && (src.url.includes('/genre/tokusatsu') || src.url.endsWith('/genre/tokusatsu/'))) {
+                    src.url = 'https://www.oricon.co.jp/';
                     updated = true;
                 }
-                if (src.id === 'kamenrider' && src.url.endsWith('/')) {
-                    src.url = 'https://www.kamen-rider-official.com/news';
+                if (src.id === 'kamenrider' && (src.url.includes('/news') || src.url.endsWith('/news/'))) {
+                    src.url = 'https://www.kamen-rider-official.com/';
                     updated = true;
                 }
             });
@@ -370,8 +370,13 @@ async function fetchWithProxyFallback(targetUrl, signal) {
     let proxiedUrls = [];
     
     if (isOriconOrRider) {
-        // オリコン・仮面ライダー公式サイトは成功実績のある3プロキシを並行でフェッチします。
+        // オリコン・仮面ライダー公式サイト（トップページに変更したため、corsproxy.io も並行で試す価値があります）
         proxiedUrls = [
+            {
+                name: 'corsproxy',
+                url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => await res.text()
+            },
             {
                 name: 'allorigins_raw',
                 url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
