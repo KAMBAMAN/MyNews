@@ -370,14 +370,15 @@ async function fetchWithProxyFallback(targetUrl, signal) {
     let proxiedUrls = [];
     
     if (isOriconOrRider) {
-        // オリコン・仮面ライダー公式サイトは corsproxy.io が 404 を返し、cors.lol はCORSヘッダーが無いためブロックされます。
-        // 実績のある allorigins を最優先に配置し、タイムアウトのラグを最小化します。
+        // オリコン・仮面ライダー公式サイトは成功実績のある3プロキシを並行でフェッチします。
         proxiedUrls = [
             {
+                name: 'allorigins_raw',
                 url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
                 parse: async (res) => await res.text()
             },
             {
+                name: 'allorigins_json',
                 url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
                 parse: async (res) => {
                     const json = await res.json();
@@ -385,88 +386,91 @@ async function fetchWithProxyFallback(targetUrl, signal) {
                 }
             },
             {
+                name: 'yacdn',
                 url: `https://yacdn.org/proxy/${targetUrl}`,
-                parse: async (res) => await res.text()
-            },
-            {
-                url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
                 parse: async (res) => await res.text()
             }
         ];
     } else {
-        // 通常のゲームカテゴリ等のリソース用（corsproxy.io を最優先にし、高速な読み込みを維持）
+        // 通常のゲームカテゴリ等のリソース用（corsproxy.io を含めて並行フェッチ）
         proxiedUrls = [
             {
+                name: 'corsproxy',
                 url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
                 parse: async (res) => await res.text()
             },
             {
+                name: 'yacdn',
                 url: `https://yacdn.org/proxy/${targetUrl}`,
                 parse: async (res) => await res.text()
             },
             {
+                name: 'allorigins_raw',
                 url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-                parse: async (res) => await res.text()
-            },
-            {
-                url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
-                parse: async (res) => {
-                    const json = await res.json();
-                    return json.contents;
-                }
-            },
-            {
-                url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
                 parse: async (res) => await res.text()
             }
         ];
     }
 
-    let lastError = null;
-    for (const proxy of proxiedUrls) {
-        let timeoutId = null;
-        try {
-            console.log(`Trying proxy: ${proxy.url}`);
-            
-            // 6秒で接続を切るためのAbortController
-            const timerController = new AbortController();
-            timeoutId = setTimeout(() => {
-                timerController.abort();
-            }, 6000);
+    // 各プロキシに対して非同期で取得を試みるPromise群を作成（並行実行）
+    const fetchPromises = proxiedUrls.map(proxy => {
+        return (async () => {
+            let timeoutId = null;
+            try {
+                console.log(`[Parallel Proxy] Trying: ${proxy.name} -> ${proxy.url}`);
+                
+                const timerController = new AbortController();
+                // 10秒で接続を切るタイムアウト設定
+                timeoutId = setTimeout(() => {
+                    timerController.abort();
+                }, 10000);
 
-            // ユーザー中止シグナルと6秒タイムアウト用シグナルを結合
-            const combinedSignal = signal 
-                ? anySignal([signal, timerController.signal]) 
-                : timerController.signal;
+                const combinedSignal = signal 
+                    ? anySignal([signal, timerController.signal]) 
+                    : timerController.signal;
 
-            const response = await fetch(proxy.url, { signal: combinedSignal });
-            clearTimeout(timeoutId);
+                const response = await fetch(proxy.url, { signal: combinedSignal });
+                clearTimeout(timeoutId);
 
-            if (response.ok) {
-                const content = await proxy.parse(response);
-                if (content) {
-                    console.log(`Successfully fetched via proxy: ${proxy.url}`);
-                    return content;
+                if (response.ok) {
+                    const content = await proxy.parse(response);
+                    if (content) {
+                        console.log(`[Parallel Proxy] Successfully fetched via: ${proxy.name}`);
+                        return content;
+                    }
                 }
-            }
-            throw new Error(`Proxy status: ${response.status}`);
-        } catch (err) {
-            if (timeoutId) clearTimeout(timeoutId);
-            
-            if (err.name === 'AbortError') {
-                if (signal && signal.aborted) {
-                    throw err; // ユーザー自身によるキャンセルならここで終了
+                throw new Error(`Proxy status: ${response.status}`);
+            } catch (err) {
+                if (timeoutId) clearTimeout(timeoutId);
+                
+                if (err.name === 'AbortError') {
+                    if (signal && signal.aborted) {
+                        throw err; // ユーザーキャンセルは伝播
+                    }
+                    console.warn(`[Parallel Proxy] Timeout (10000ms): ${proxy.name}`);
+                    throw new Error(`Timeout (10000ms)`);
                 }
-                console.warn(`Proxy timeout (6000ms): ${proxy.url}`);
-                lastError = new Error(`Proxy timeout (6000ms)`);
-                continue; // タイムアウトの場合は次のプロキシへ切り替え
+                console.warn(`[Parallel Proxy] Failed: ${proxy.name} -> ${err.message}`);
+                throw err;
             }
-            
-            console.warn(`Proxy failed: ${proxy.url}`, err);
-            lastError = err;
-        }
-    }
-    throw lastError || new Error('All CORS proxies failed');
+        })();
+    });
+
+    // 最初に成功したプロキシのデータを採用する（手動 Promise.any 実装）
+    return new Promise((resolve, reject) => {
+        let completed = 0;
+        let errors = [];
+        
+        fetchPromises.forEach((promise, idx) => {
+            promise.then(resolve).catch(err => {
+                errors.push(`${proxiedUrls[idx].name}: ${err.message}`);
+                completed++;
+                if (completed === fetchPromises.length) {
+                    reject(new Error('All parallel proxies failed: ' + errors.join(' | ')));
+                }
+            });
+        });
+    });
 }
 
 // 複数のAbortSignalを合成するヘルパー
