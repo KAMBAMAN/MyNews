@@ -241,22 +241,27 @@ function startFetchNews() {
     });
 }
 
-// Fetch helper using fallback for multiple CORS Proxies
+// Fetch helper using fallback for multiple CORS Proxies (Reinforced for GitHub Pages)
 async function fetchWithProxyFallback(targetUrl, signal) {
     const proxiedUrls = [
+        {
+            // ThingProxy (ボットフィルター回避に比較的強い)
+            url: `https://thingproxy.freeboard.io/fetch/${targetUrl}`,
+            parse: async (res) => await res.text()
+        },
         {
             // corsproxy.io (Requires '?url=' prefix)
             url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
             parse: async (res) => await res.text()
         },
         {
-            // api.allorigins.win (raw mode)
-            url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}&ts=${Date.now()}`,
+            // api.allorigins.win (raw mode - キャッシュ防止パラメータ除去版)
+            url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
             parse: async (res) => await res.text()
         },
         {
             // api.allorigins.win (json mode backup)
-            url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&ts=${Date.now()}`,
+            url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
             parse: async (res) => {
                 const json = await res.json();
                 return json.contents;
@@ -271,9 +276,24 @@ async function fetchWithProxyFallback(targetUrl, signal) {
 
     let lastError = null;
     for (const proxy of proxiedUrls) {
+        let timeoutId = null;
         try {
             console.log(`Trying proxy: ${proxy.url}`);
-            const response = await fetch(proxy.url, { signal });
+            
+            // 4秒で接続を切るためのAbortController
+            const timerController = new AbortController();
+            timeoutId = setTimeout(() => {
+                timerController.abort();
+            }, 4000);
+
+            // ユーザー中止シグナルと4秒タイムアウト用シグナルを結合
+            const combinedSignal = signal 
+                ? anySignal([signal, timerController.signal]) 
+                : timerController.signal;
+
+            const response = await fetch(proxy.url, { signal: combinedSignal });
+            clearTimeout(timeoutId);
+
             if (response.ok) {
                 const content = await proxy.parse(response);
                 if (content) {
@@ -283,12 +303,48 @@ async function fetchWithProxyFallback(targetUrl, signal) {
             }
             throw new Error(`Proxy status: ${response.status}`);
         } catch (err) {
-            if (err.name === 'AbortError') throw err;
+            if (timeoutId) clearTimeout(timeoutId);
+            
+            if (err.name === 'AbortError') {
+                if (signal && signal.aborted) {
+                    throw err; // ユーザー自身によるキャンセルならここで終了
+                }
+                console.warn(`Proxy timeout (4000ms): ${proxy.url}`);
+                lastError = new Error(`Proxy timeout (4000ms)`);
+                continue; // タイムアウトの場合は次のプロキシへ切り替え
+            }
+            
             console.warn(`Proxy failed: ${proxy.url}`, err);
             lastError = err;
         }
     }
     throw lastError || new Error('All CORS proxies failed');
+}
+
+// 複数のAbortSignalを合成するヘルパー
+function anySignal(signals) {
+    const controller = new AbortController();
+    
+    function onAbort() {
+        controller.abort();
+        cleanup();
+    }
+    
+    function cleanup() {
+        for (const signal of signals) {
+            signal.removeEventListener('abort', onAbort);
+        }
+    }
+    
+    for (const signal of signals) {
+        if (signal.aborted) {
+            onAbort();
+            break;
+        }
+        signal.addEventListener('abort', onAbort);
+    }
+    
+    return controller.signal;
 }
 
 // Fetch helper with CORS Proxy or Local Proxy Server
