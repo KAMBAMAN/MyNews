@@ -365,41 +365,62 @@ function startFetchNews() {
 
 // Fetch helper using fallback for multiple CORS Proxies (Reinforced for GitHub Pages)
 async function fetchWithProxyFallback(targetUrl, signal) {
-    const proxiedUrls = [
-        {
-            // corsproxy.io (最も高速・安定)
-            url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
-            parse: async (res) => await res.text()
-        },
-        {
-            // cors.lol (新しく追加、制限が緩い)
-            url: `https://cors.lol/?url=${encodeURIComponent(targetUrl)}`,
-            parse: async (res) => await res.text()
-        },
-        {
-            // yacdn.org (ボットフィルターに強く、非常に安定)
-            url: `https://yacdn.org/proxy/${targetUrl}`,
-            parse: async (res) => await res.text()
-        },
-        {
-            // api.allorigins.win (raw mode - キャッシュ防止パラメータ除去版)
-            url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-            parse: async (res) => await res.text()
-        },
-        {
-            // api.allorigins.win (json mode backup)
-            url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
-            parse: async (res) => {
-                const json = await res.json();
-                return json.contents;
+    const isOriconOrRider = targetUrl.includes('oricon.co.jp') || targetUrl.includes('kamen-rider-official.com');
+    
+    let proxiedUrls = [];
+    
+    if (isOriconOrRider) {
+        // オリコン・仮面ライダー公式サイトは corsproxy.io が 404 を返し、cors.lol はCORSヘッダーが無いためブロックされます。
+        // 実績のある allorigins を最優先に配置し、タイムアウトのラグを最小化します。
+        proxiedUrls = [
+            {
+                url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => await res.text()
+            },
+            {
+                url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => {
+                    const json = await res.json();
+                    return json.contents;
+                }
+            },
+            {
+                url: `https://yacdn.org/proxy/${targetUrl}`,
+                parse: async (res) => await res.text()
+            },
+            {
+                url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => await res.text()
             }
-        },
-        {
-            // api.codetabs.com
-            url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
-            parse: async (res) => await res.text()
-        }
-    ];
+        ];
+    } else {
+        // 通常のゲームカテゴリ等のリソース用（corsproxy.io を最優先にし、高速な読み込みを維持）
+        proxiedUrls = [
+            {
+                url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => await res.text()
+            },
+            {
+                url: `https://yacdn.org/proxy/${targetUrl}`,
+                parse: async (res) => await res.text()
+            },
+            {
+                url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => await res.text()
+            },
+            {
+                url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => {
+                    const json = await res.json();
+                    return json.contents;
+                }
+            },
+            {
+                url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
+                parse: async (res) => await res.text()
+            }
+        ];
+    }
 
     let lastError = null;
     for (const proxy of proxiedUrls) {
