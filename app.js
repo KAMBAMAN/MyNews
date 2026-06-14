@@ -1,4 +1,4 @@
-// Default initial categories mapping to the five game sources
+// Default initial categories mapping to the game and tokusatsu sources
 const DEFAULT_CATEGORIES = [
     {
         id: 'game',
@@ -40,6 +40,47 @@ const DEFAULT_CATEGORIES = [
                 accentClass: 'dengeki'
             }
         ]
+    },
+    {
+        id: 'tokusatsu',
+        name: '特撮',
+        sources: [
+            {
+                id: 'oricon',
+                name: 'オリコンニュース (特撮)',
+                type: 'scraping',
+                url: 'https://www.oricon.co.jp/genre/tokusatsu/',
+                accentClass: 'oricon'
+            },
+            {
+                id: 'tsuburaya',
+                name: '円谷プロ公式サイト',
+                type: 'scraping',
+                url: 'https://m-78.jp/news',
+                accentClass: 'tsuburaya'
+            },
+            {
+                id: 'kamenrider',
+                name: '仮面ライダー公式サイト',
+                type: 'scraping',
+                url: 'https://www.kamen-rider-official.com/news/',
+                accentClass: 'kamenrider'
+            },
+            {
+                id: 'ttfc',
+                name: '東映特撮ファンクラブ',
+                type: 'scraping',
+                url: 'https://tokusatsu-fc.jp/',
+                accentClass: 'ttfc'
+            },
+            {
+                id: 'toei',
+                name: '東映株式会社',
+                type: 'scraping',
+                url: 'https://www.toei.co.jp/entertainment/news/index.html',
+                accentClass: 'toei'
+            }
+        ]
     }
 ];
 
@@ -63,6 +104,17 @@ let categories = JSON.parse(localStorage.getItem('gnh_categories')) || DEFAULT_C
             });
         }
     });
+    
+    // Add new default categories (like tokusatsu) if they are missing in user's localStorage
+    const hasTokusatsu = categories.some(cat => cat.id === 'tokusatsu');
+    if (!hasTokusatsu) {
+        const tokusatsuCat = DEFAULT_CATEGORIES.find(cat => cat.id === 'tokusatsu');
+        if (tokusatsuCat) {
+            categories.push(tokusatsuCat);
+            updated = true;
+        }
+    }
+
     if (updated) {
         localStorage.setItem('gnh_categories', JSON.stringify(categories));
     }
@@ -433,13 +485,36 @@ async function fetchFromSource(src, signal) {
     }
     
     const parser = new DOMParser();
+    let articles = [];
     if (src.type === 'rss') {
         const doc = parser.parseFromString(rawContent, 'application/xml');
-        return parseRSS(doc, src);
+        articles = parseRSS(doc, src);
     } else {
         const doc = parser.parseFromString(rawContent, 'text/html');
-        return parseScraping(doc, src);
+        articles = parseScraping(doc, src);
     }
+
+    // 特撮カテゴリの中の汎用ニュースソース（オリコン、東映株式会社）のみ特撮キーワードで絞り込む
+    const activeCat = categories.find(c => c.sources.some(s => s.id === src.id));
+    if (activeCat && activeCat.id === 'tokusatsu' && (src.id === 'oricon' || src.id === 'toei')) {
+        const TOKUSATSU_KEYWORDS = [
+            '特撮', '仮面ライダー', 'ウルトラマン', '戦隊', 'ゴジラ', 'ライダー', 
+            'スーパー戦隊', 'ガメラ', 'キングオージャー', 'ドンブラザーズ', 
+            'ゼンカイジャー', 'ギーツ', 'ガッチャード', 'ブンブンジャー', 'TTFC', 
+            '東映特撮', '円谷', 'ウルトラセブン', 'ゼロ', 'ティガ', 'ゼッツ', 'テオ',
+            'ヒーロー', '怪獣', 'シン・', '特撮ニュータイプ', '東映', 'ウルトラギャラクシー'
+        ];
+        articles = articles.filter(art => {
+            const title = art.title.toLowerCase();
+            const desc = art.description.toLowerCase();
+            return TOKUSATSU_KEYWORDS.some(keyword => {
+                const kw = keyword.toLowerCase();
+                return title.includes(kw) || desc.includes(kw);
+            });
+        });
+    }
+
+    return articles;
 }
 
 // Parse RSS Feeds (Supports RSS 1.0, 2.0, Atom)
@@ -618,6 +693,213 @@ function parseScraping(doc, src) {
                     title,
                     link: fullUrl,
                     description,
+                    date: pubDate,
+                    source: src.name,
+                    sourceId: src.id
+                });
+            }
+        });
+    }
+    else if (src.id === 'oricon') {
+        const seenUrls = new Set();
+        doc.querySelectorAll('a').forEach(a => {
+            const href = a.getAttribute('href');
+            if (href && href.includes('/news/') && (href.includes('/full/') || href.match(/\/\d+\//))) {
+                const fullUrl = href.startsWith('http') ? href : `https://www.oricon.co.jp${href}`;
+                if (seenUrls.has(fullUrl)) return;
+                seenUrls.add(fullUrl);
+
+                let title = a.textContent.trim();
+                if (title.length < 10) {
+                    const img = a.querySelector('img');
+                    if (img) title = img.getAttribute('alt') || '';
+                }
+                title = title.replace(/\s+/g, ' ').trim();
+                if (title.length < 10) return;
+
+                let pubDate = now;
+                // オリコンのリストにある日付（例：2026-06-14 12:00 や相対表記）を解析
+                const parentText = a.parentElement?.textContent || a.parentElement?.parentElement?.textContent || '';
+                const dateMatch = parentText.match(/(\d{4})-(\d{1,2})-(\d{1,2})/) || parentText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+                if (dateMatch) {
+                    pubDate = new Date(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
+                } else {
+                    const match = parentText.match(/(\d+)\s*(時間前|分前|日前)/);
+                    if (match) {
+                        pubDate = parseRelativeTime(match[0]);
+                    }
+                }
+
+                if ((now - pubDate) > limitMs) return;
+
+                articles.push({
+                    title,
+                    link: fullUrl,
+                    description: title,
+                    date: pubDate,
+                    source: src.name,
+                    sourceId: src.id
+                });
+            }
+        });
+    }
+    else if (src.id === 'tsuburaya') {
+        const seenUrls = new Set();
+        doc.querySelectorAll('a').forEach(a => {
+            const href = a.getAttribute('href');
+            if (href && href.includes('/news/')) {
+                const cleanHref = href.split('#')[0].split('?')[0];
+                if (cleanHref.endsWith('/news/') || cleanHref.endsWith('/news')) return;
+
+                const fullUrl = href.startsWith('http') ? href : `https://m-78.jp${href}`;
+                if (seenUrls.has(fullUrl)) return;
+                seenUrls.add(fullUrl);
+
+                let title = a.textContent.trim();
+                if (title.length < 8) {
+                    const img = a.querySelector('img');
+                    if (img) title = img.getAttribute('alt') || '';
+                }
+                title = title.replace(/\s+/g, ' ').trim();
+                if (title.length < 8) return;
+
+                let pubDate = now;
+                const parentText = a.parentElement?.textContent || a.parentElement?.parentElement?.textContent || '';
+                const dateMatch = parentText.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/) || parentText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+                if (dateMatch) {
+                    pubDate = new Date(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
+                }
+
+                if (isNaN(pubDate.getTime()) || (now - pubDate) > limitMs) return;
+
+                articles.push({
+                    title,
+                    link: fullUrl,
+                    description: title,
+                    date: pubDate,
+                    source: src.name,
+                    sourceId: src.id
+                });
+            }
+        });
+    }
+    else if (src.id === 'kamenrider') {
+        const seenUrls = new Set();
+        doc.querySelectorAll('a').forEach(a => {
+            const href = a.getAttribute('href');
+            if (href && href.includes('/news/')) {
+                const cleanHref = href.split('#')[0].split('?')[0];
+                if (cleanHref.endsWith('/news/') || cleanHref.endsWith('/news')) return;
+
+                const fullUrl = href.startsWith('http') ? href : `https://www.kamen-rider-official.com${href}`;
+                if (seenUrls.has(fullUrl)) return;
+                seenUrls.add(fullUrl);
+
+                let title = a.textContent.trim();
+                if (title.length < 8) {
+                    const img = a.querySelector('img');
+                    if (img) title = img.getAttribute('alt') || '';
+                }
+                title = title.replace(/\s+/g, ' ').trim();
+                if (title.length < 8) return;
+
+                let pubDate = now;
+                const parentText = a.parentElement?.textContent || a.parentElement?.parentElement?.textContent || '';
+                const dateMatch = parentText.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/) || parentText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+                if (dateMatch) {
+                    pubDate = new Date(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
+                }
+
+                if (isNaN(pubDate.getTime()) || (now - pubDate) > limitMs) return;
+
+                articles.push({
+                    title,
+                    link: fullUrl,
+                    description: title,
+                    date: pubDate,
+                    source: src.name,
+                    sourceId: src.id
+                });
+            }
+        });
+    }
+    else if (src.id === 'ttfc') {
+        const seenUrls = new Set();
+        doc.querySelectorAll('a').forEach(a => {
+            const href = a.getAttribute('href');
+            if (href) {
+                const isRelative = href.startsWith('/') && !href.startsWith('//');
+                const isToei = href.includes('toei.co.jp');
+                const isTTFC = href.includes('tokusatsu-fc.jp');
+
+                if (isRelative || isToei || isTTFC) {
+                    const fullUrl = isRelative ? `https://tokusatsu-fc.jp${href}` : href;
+                    if (seenUrls.has(fullUrl)) return;
+                    seenUrls.add(fullUrl);
+
+                    let title = a.textContent.trim();
+                    if (title.length < 10) {
+                        const img = a.querySelector('img');
+                        if (img) title = img.getAttribute('alt') || '';
+                    }
+                    title = title.replace(/\s+/g, ' ').trim();
+                    if (title.length < 10) return;
+
+                    let pubDate = now;
+                    const parentText = a.parentElement?.textContent || a.parentElement?.parentElement?.textContent || '';
+                    const dateMatch = parentText.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/) || parentText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+                    if (dateMatch) {
+                        pubDate = new Date(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
+                    }
+
+                    if (isNaN(pubDate.getTime()) || (now - pubDate) > limitMs) return;
+
+                    articles.push({
+                        title,
+                        link: fullUrl,
+                        description: title,
+                        date: pubDate,
+                        source: src.name,
+                        sourceId: src.id
+                    });
+                }
+            }
+        });
+    }
+    else if (src.id === 'toei') {
+        const seenUrls = new Set();
+        doc.querySelectorAll('a').forEach(a => {
+            const href = a.getAttribute('href');
+            if (href && (href.includes('/news/detail/') || href.includes('detail/'))) {
+                let fullUrl = href;
+                if (!href.startsWith('http')) {
+                    const cleanPath = href.replace(/^[./]+/, '');
+                    fullUrl = `https://www.toei.co.jp/entertainment/news/${cleanPath}`;
+                }
+                if (seenUrls.has(fullUrl)) return;
+                seenUrls.add(fullUrl);
+
+                let title = a.textContent.trim();
+                if (title.length < 10) {
+                    const img = a.querySelector('img');
+                    if (img) title = img.getAttribute('alt') || '';
+                }
+                title = title.replace(/\s+/g, ' ').trim();
+                if (title.length < 10) return;
+
+                let pubDate = now;
+                const parentText = a.parentElement?.textContent || a.parentElement?.parentElement?.textContent || '';
+                const dateMatch = parentText.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/) || parentText.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+                if (dateMatch) {
+                    pubDate = new Date(`${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`);
+                }
+
+                if (isNaN(pubDate.getTime()) || (now - pubDate) > limitMs) return;
+
+                articles.push({
+                    title,
+                    link: fullUrl,
+                    description: title,
                     date: pubDate,
                     source: src.name,
                     sourceId: src.id
