@@ -29,7 +29,7 @@ const DEFAULT_CATEGORIES = [
                 id: 'famitsu',
                 name: 'ファミ通.com',
                 type: 'scraping',
-                url: 'https://www.famitsu.com/news/',
+                url: 'https://www.famitsu.com/',
                 accentClass: 'famitsu'
             },
             {
@@ -52,8 +52,8 @@ let categories = JSON.parse(localStorage.getItem('gnh_categories')) || DEFAULT_C
     categories.forEach(cat => {
         if (cat.id === 'game') {
             cat.sources.forEach(src => {
-                if (src.id === 'famitsu' && src.url.includes('/category/new-article/')) {
-                    src.url = 'https://www.famitsu.com/news/';
+                if (src.id === 'famitsu' && (src.url.includes('/category/new-article/') || src.url.includes('/news/'))) {
+                    src.url = 'https://www.famitsu.com/';
                     updated = true;
                 }
                 if (src.id === 'dengeki' && src.url.includes('/archive/')) {
@@ -259,13 +259,13 @@ function startFetchNews() {
 async function fetchWithProxyFallback(targetUrl, signal) {
     const proxiedUrls = [
         {
-            // ThingProxy (ボットフィルター回避に比較的強い)
-            url: `https://thingproxy.freeboard.io/fetch/${targetUrl}`,
+            // corsproxy.io (最も高速・安定)
+            url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
             parse: async (res) => await res.text()
         },
         {
-            // corsproxy.io (Requires '?url=' prefix)
-            url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
+            // yacdn.org (ボットフィルターに強く、非常に安定)
+            url: `https://yacdn.org/proxy/${targetUrl}`,
             parse: async (res) => await res.text()
         },
         {
