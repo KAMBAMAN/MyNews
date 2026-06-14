@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game News Hub - プレミアムゲームニュースアグリゲーター</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- サイドバーまたはヘッダー -->
+        <header class="app-header">
+            <div class="logo-area">
+                <i class="fa-solid fa-gamepad logo-icon"></i>
+                <h1>GameNews<span>Hub</span></h1>
+            </div>
+            
+            <div class="status-panel">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                <div class="source-statuses" id="sourceStatuses">
+                    <!-- JavaScriptで動的生成 -->
+                </div>
+            </div>
+        </header>
+
+        <!-- メインコンテンツ -->
+        <main class="app-main">
+            <!-- カテゴリタブ -->
+            <section class="category-section">
+                <div class="category-tabs-wrapper">
+                    <div class="category-tabs" id="categoryTabs">
+                        <!-- JavaScriptで動的生成 -->
+                    </div>
+                    <button class="manage-btn" id="manageBtn" title="カテゴリとソースの管理">
+                        <i class="fa-solid fa-gear"></i> 管理
+                    </button>
+                </div>
+            </section>
+
+            <!-- ツールバー（時間選択、検索、お気に入りタブなど） -->
+            <section class="toolbar">
+                <div class="filter-group">
+                    <span class="filter-label"><i class="fa-regular fa-clock"></i> 期間:</span>
+                    <div class="time-buttons">
+                        <button class="time-btn active" data-hours="8">8時間</button>
+                        <button class="time-btn" data-hours="12">12時間</button>
+                        <button class="time-btn" data-hours="24">24時間</button>
+                        <button class="time-btn" data-hours="72">3日間</button>
+                    </div>
+                </div>
+
+                <div class="search-box">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="searchInput" placeholder="タイトルや要約から検索...">
+                    <button id="clearSearchBtn" class="clear-btn"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <div class="view-tabs">
+                    <button class="tab-btn active" id="tabAll"><i class="fa-solid fa-list"></i> すべての記事</button>
+                    <button class="tab-btn" id="tabFavorites"><i class="fa-solid fa-star"></i> お気に入り (<span id="favCount">0</span>)</button>
+                </div>
+            </section>
+
+            <!-- 記事リスト -->
+            <section class="articles-section">
+                <!-- ロード中の骨組み（スケルトン）表示用コンテナ -->
+                <div class="skeletons-container" id="skeletonsContainer">
+                    <!-- 初期表示用のスケルトンカード -->
+                    <div class="skeleton-card"></div>
+                    <div class="skeleton-card"></div>
+                    <div class="skeleton-card"></div>
+                </div>
+
+                <!-- 実際の一覧 -->
+                <div class="articles-grid" id="articlesGrid">
+                    <!-- JavaScriptで記事カードがここに動的に追加されます -->
+                </div>
+
+                <!-- 記事がない場合の表示 -->
+                <div class="empty-state hidden" id="emptyState">
+                    <i class="fa-regular fa-folder-open empty-icon"></i>
+                    <p class="empty-title">記事が見つかりません</p>
+                    <p class="empty-desc">期間設定を広げるか、別の検索ワードをお試しください。</p>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>&copy; 2026 GameNewsHub. Personal RSS & Scraping Dashboard.</p>
+            <p class="footer-note">CORSプロキシ経由で公式RSSおよび公開HTMLから取得しています。</p>
+        </footer>
+    </div>
+
+    <!-- 設定モーダル -->
+    <div class="modal-backdrop hidden" id="manageModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-sliders"></i> カテゴリとソースの管理</h2>
+                <button class="close-btn" id="closeModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-tabs">
+                    <button class="modal-tab-btn active" id="modalTabCategories">カテゴリ一覧</button>
+                    <button class="modal-tab-btn" id="modalTabAddSource">ソースの追加</button>
+                </div>
+                
+                <!-- カテゴリ一覧・削除セクション -->
+                <div class="modal-section" id="modalSectionCategories">
+                    <div class="add-category-form">
+                        <input type="text" id="newCategoryName" placeholder="新しいカテゴリ名 (例: ガジェット)">
+                        <button class="btn-primary" id="addCategoryBtn"><i class="fa-solid fa-plus"></i> 追加</button>
+                    </div>
+                    <div class="category-list" id="modalCategoryList">
+                        <!-- JSで動的生成 -->
+                    </div>
+                </div>
+                
+                <!-- ソース追加セクション -->
+                <div class="modal-section hidden" id="modalSectionAddSource">
+                    <form id="addSourceForm" class="source-form">
+                        <div class="form-group">
+                            <label for="sourceCategorySelect">追加先カテゴリ</label>
+                            <select id="sourceCategorySelect">
+                                <!-- JSで動的生成 -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sourceName">ソース名 (例: ITmedia)</label>
+                            <input type="text" id="sourceName" required placeholder="メディア名を入力...">
+                        </div>
+                        <div class="form-group">
+                            <label for="sourceUrl">RSSフィードのURL</label>
+                            <input type="url" id="sourceUrl" required placeholder="https://example.com/feed ...">
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary" id="submitSourceBtn"><i class="fa-solid fa-plus"></i> ソースを追加</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
