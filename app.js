@@ -417,6 +417,13 @@ async function fetchWithProxyFallback(targetUrl, signal) {
         ];
     }
 
+    const groupController = new AbortController();
+    if (signal) {
+        signal.addEventListener('abort', () => groupController.abort());
+    }
+
+    let isResolved = false;
+
     // 各プロキシに対して非同期で取得を試みるPromise群を作成（並行実行）
     const fetchPromises = proxiedUrls.map(proxy => {
         return (async () => {
@@ -430,9 +437,10 @@ async function fetchWithProxyFallback(targetUrl, signal) {
                     timerController.abort();
                 }, 10000);
 
-                const combinedSignal = signal 
-                    ? anySignal([signal, timerController.signal]) 
-                    : timerController.signal;
+                const combinedSignal = anySignal([
+                    timerController.signal, 
+                    groupController.signal
+                ]);
 
                 const response = await fetch(proxy.url, { signal: combinedSignal });
                 clearTimeout(timeoutId);
@@ -440,7 +448,11 @@ async function fetchWithProxyFallback(targetUrl, signal) {
                 if (response.ok) {
                     const content = await proxy.parse(response);
                     if (content) {
-                        console.log(`[Parallel Proxy] Successfully fetched via: ${proxy.name}`);
+                        if (!isResolved) {
+                            isResolved = true;
+                            groupController.abort(); // 他のプロキシフェッチを即時キャンセル！
+                            console.log(`[Parallel Proxy] Successfully fetched via: ${proxy.name} (Other proxies aborted)`);
+                        }
                         return content;
                     }
                 }
@@ -450,12 +462,22 @@ async function fetchWithProxyFallback(targetUrl, signal) {
                 
                 if (err.name === 'AbortError') {
                     if (signal && signal.aborted) {
-                        throw err; // ユーザーキャンセルは伝播
+                        throw err; // ユーザーキャンセルは上流へ
+                    }
+                    if (groupController.signal.aborted) {
+                        // 他のプロキシが成功したためのアボート時は静かに終了（エラーを出さない）
+                        console.log(`[Parallel Proxy] Aborted (silent): ${proxy.name}`);
+                        throw err;
                     }
                     console.warn(`[Parallel Proxy] Timeout (10000ms): ${proxy.name}`);
                     throw new Error(`Timeout (10000ms)`);
                 }
-                console.warn(`[Parallel Proxy] Failed: ${proxy.name} -> ${err.message}`);
+                
+                if (groupController.signal.aborted) {
+                    console.log(`[Parallel Proxy] Ignored error after success: ${proxy.name} -> ${err.message}`);
+                } else {
+                    console.warn(`[Parallel Proxy] Failed: ${proxy.name} -> ${err.message}`);
+                }
                 throw err;
             }
         })();
@@ -465,18 +487,16 @@ async function fetchWithProxyFallback(targetUrl, signal) {
     return new Promise((resolve, reject) => {
         let completed = 0;
         let errors = [];
-        let isResolved = false;
         
         fetchPromises.forEach((promise, idx) => {
             promise.then(
                 (content) => {
-                    if (!isResolved) {
-                        isResolved = true;
+                    if (content !== undefined) {
                         resolve(content);
                     }
                 },
                 (err) => {
-                    if (isResolved) return; // すでに解決済みなら以後の失敗は無視
+                    if (isResolved) return; // 既に解決済みの場合は無視
                     
                     errors.push(`${proxiedUrls[idx].name}: ${err.message}`);
                     completed++;
